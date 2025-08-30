@@ -1,0 +1,75 @@
+# Backup directories
+SplashTop-Backup-*
+
+# Build directories
+build/
+dist/
+out/
+target/
+
+# Dependencies
+node_modules/
+.pub-cache/
+.dart_tool/
+
+# IDE files
+.vscode/
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Log files
+*.log
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# Compiled binaries
+*.exe
+*.out
+*.app
+*.so
+*.dylib
+*.dll
+
+# Package files
+*.zip
+*.tar.gz
+*.7z
+
+# Flutter/Dart specific (additional to client-specific .gitignore)
+.flutter-plugins-dependencies
+.packages
+.pub/
+pubspec.lock
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# Test coverage
+coverage/
+
+# Documentation build
+docs/_build/

@@ -1,119 +1,89 @@
 import 'package:flutter/foundation.dart';
-import '../models/user.dart';
 import '../services/auth_service.dart';
+import '../models/user.dart';
 
 class AuthProvider with ChangeNotifier {
-  final AuthService _authService;
+  final AuthService _authService = AuthService();
   
-  User? _currentUser;
+  User? _user;
   bool _isLoading = true;
   bool _isAuthenticated = false;
-  String? _error;
 
-  AuthProvider(this._authService) {
-    _initializeAuth();
-  }
-
-  // Getters
-  User? get currentUser => _currentUser;
+  User? get user => _user;
   bool get isLoading => _isLoading;
   bool get isAuthenticated => _isAuthenticated;
-  String? get error => _error;
 
-  // Initialize authentication state
-  Future<void> _initializeAuth() async {
+  AuthProvider() {
+    _checkAuthStatus();
+  }
+
+  Future<void> _checkAuthStatus() async {
     try {
-      _isLoading = true;
-      notifyListeners();
-
-      final isAuth = await _authService.isAuthenticated();
-      if (isAuth) {
-        _currentUser = await _authService.getCurrentUser();
-        _isAuthenticated = true;
-      } else {
-        _isAuthenticated = false;
-        _currentUser = null;
+      _isAuthenticated = await _authService.isAuthenticated();
+      if (_isAuthenticated) {
+        _user = await _authService.getUser();
       }
     } catch (e) {
-      _error = e.toString();
       _isAuthenticated = false;
-      _currentUser = null;
+      _user = null;
     } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
 
-  // Login user
   Future<bool> login(String email, String password) async {
-    try {
-      _isLoading = true;
-      _error = null;
-      notifyListeners();
+    _isLoading = true;
+    notifyListeners();
 
-      final response = await _authService.login(email, password);
-      _currentUser = response.user;
-      _isAuthenticated = true;
+    try {
+      final result = await _authService.login(email, password);
       
-      return true;
+      if (result['success']) {
+        _user = result['user'];
+        _isAuthenticated = true;
+        return true;
+      } else {
+        throw Exception(result['error']);
+      }
     } catch (e) {
-      _error = e.toString();
       _isAuthenticated = false;
-      _currentUser = null;
-      return false;
+      _user = null;
+      rethrow;
     } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
 
-  // Logout user
+  Future<bool> register(String email, String password, String firstName, String lastName) async {
+    _isLoading = true;
+    notifyListeners();
+
+    try {
+      final result = await _authService.register(email, password, firstName, lastName);
+      
+      if (result['success']) {
+        _user = result['user'];
+        _isAuthenticated = true;
+        return true;
+      } else {
+        throw Exception(result['error']);
+      }
+    } catch (e) {
+      _isAuthenticated = false;
+      _user = null;
+      rethrow;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
   Future<void> logout() async {
-    try {
-      _isLoading = true;
-      notifyListeners();
-
-      await _authService.logout();
-      _currentUser = null;
-      _isAuthenticated = false;
-      _error = null;
-    } catch (e) {
-      _error = e.toString();
-    } finally {
-      _isLoading = false;
-      notifyListeners();
-    }
-  }
-
-  // Refresh token
-  Future<bool> refreshToken() async {
-    try {
-      await _authService.refreshToken();
-      // Token refreshed successfully, no need to update user data
-      return true;
-    } catch (e) {
-      _error = e.toString();
-      // If refresh fails, logout user
-      await logout();
-      return false;
-    }
-  }
-
-  // Clear error
-  void clearError() {
-    _error = null;
+    await _authService.clearAuth();
+    _user = null;
+    _isAuthenticated = false;
     notifyListeners();
-  }
-
-  // Update user profile
-  void updateUser(User user) {
-    _currentUser = user;
-    notifyListeners();
-  }
-
-  @override
-  void dispose() {
-    _authService.dispose();
-    super.dispose();
   }
 }

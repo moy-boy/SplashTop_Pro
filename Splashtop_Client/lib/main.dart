@@ -1,59 +1,29 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-
-import 'services/auth_service.dart';
-import 'services/webrtc_service.dart';
-import 'services/api_service.dart';
-import 'providers/auth_provider.dart';
-import 'providers/pc_list_provider.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
-import 'screens/streaming_screen.dart';
+import 'screens/test_login_screen.dart';
+import 'providers/auth_provider.dart';
+import 'providers/pc_list_provider.dart';
 import 'utils/constants.dart';
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  
-  // Initialize services
-  final storage = FlutterSecureStorage();
-  final authService = AuthService(storage);
-  final apiService = ApiService();
-  final webrtcService = WebRTCService();
-  
-  runApp(MyApp(
-    authService: authService,
-    apiService: apiService,
-    webrtcService: webrtcService,
-  ));
+void main() {
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
-  final AuthService authService;
-  final ApiService apiService;
-  final WebRTCService webrtcService;
-
-  const MyApp({
-    super.key,
-    required this.authService,
-    required this.apiService,
-    required this.webrtcService,
-  });
+  const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider(
-          create: (context) => AuthProvider(authService),
-        ),
-        ChangeNotifierProvider(
-          create: (context) => PCListProvider(apiService),
-        ),
+        ChangeNotifierProvider(create: (_) => AuthProvider()),
+        ChangeNotifierProvider(create: (_) => PCListProvider()),
       ],
       child: MaterialApp(
-        title: 'SplashTop Client',
+        title: AppConfig.appName,
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(
@@ -73,7 +43,6 @@ class MyApp extends StatelessWidget {
         routes: {
           '/login': (context) => const LoginScreen(),
           '/home': (context) => const HomeScreen(),
-          '/streaming': (context) => const StreamingScreen(),
         },
       ),
     );
@@ -98,7 +67,6 @@ class AuthWrapper extends StatelessWidget {
         if (authProvider.isAuthenticated) {
           return const HomeScreen();
         }
-        
         return const LoginScreen();
       },
     );

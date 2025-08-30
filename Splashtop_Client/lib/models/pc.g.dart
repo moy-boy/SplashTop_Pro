@@ -9,33 +9,33 @@ part of 'pc.dart';
 PC _$PCFromJson(Map<String, dynamic> json) => PC(
   id: json['id'] as String,
   name: json['name'] as String,
-  description: json['description'] as String,
+  deviceId: json['deviceId'] as String,
   platform: $enumDecode(_$PCPlatformEnumMap, json['platform']),
   status: $enumDecode(_$PCStatusEnumMap, json['status']),
   ipAddress: json['ipAddress'] as String?,
-  macAddress: json['macAddress'] as String?,
-  deviceId: json['deviceId'] as String?,
+  lastSeen: json['lastSeen'] == null
+      ? null
+      : DateTime.parse(json['lastSeen'] as String),
+  version: json['version'] as String?,
+  capabilities: json['capabilities'] as Map<String, dynamic>?,
   userId: json['userId'] as String,
-  lastSeen: DateTime.parse(json['lastSeen'] as String),
   createdAt: DateTime.parse(json['createdAt'] as String),
   updatedAt: DateTime.parse(json['updatedAt'] as String),
-  metadata: json['metadata'] as Map<String, dynamic>?,
 );
 
 Map<String, dynamic> _$PCToJson(PC instance) => <String, dynamic>{
   'id': instance.id,
   'name': instance.name,
-  'description': instance.description,
+  'deviceId': instance.deviceId,
   'platform': _$PCPlatformEnumMap[instance.platform]!,
   'status': _$PCStatusEnumMap[instance.status]!,
   'ipAddress': instance.ipAddress,
-  'macAddress': instance.macAddress,
-  'deviceId': instance.deviceId,
+  'lastSeen': instance.lastSeen?.toIso8601String(),
+  'version': instance.version,
+  'capabilities': instance.capabilities,
   'userId': instance.userId,
-  'lastSeen': instance.lastSeen.toIso8601String(),
   'createdAt': instance.createdAt.toIso8601String(),
   'updatedAt': instance.updatedAt.toIso8601String(),
-  'metadata': instance.metadata,
 };
 
 const _$PCPlatformEnumMap = {
@@ -45,8 +45,7 @@ const _$PCPlatformEnumMap = {
 };
 
 const _$PCStatusEnumMap = {
-  PCStatus.online: 'online',
   PCStatus.offline: 'offline',
-  PCStatus.busy: 'busy',
-  PCStatus.sleeping: 'sleeping',
+  PCStatus.online: 'online',
+  PCStatus.streaming: 'streaming',
 };

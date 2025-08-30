@@ -1,7 +1,9 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:json_annotation/json_annotation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/user.dart';
 import '../utils/constants.dart';
@@ -64,198 +66,276 @@ class RefreshTokenResponse {
 }
 
 class AuthService {
-  final FlutterSecureStorage _storage;
-  final http.Client _httpClient;
+  late final FlutterSecureStorage _secureStorage;
+  SharedPreferences? _prefs;
 
-  AuthService(this._storage) : _httpClient = http.Client();
+  AuthService() {
+    _initSecureStorage();
+    _initPrefs();
+  }
 
-  // Check if user is authenticated
-  Future<bool> isAuthenticated() async {
-    try {
-      final token = await _storage.read(key: StorageKeys.accessToken);
-      return token != null && token.isNotEmpty;
-    } catch (e) {
-      return false;
+  void _initSecureStorage() {
+    // Configure secure storage for Linux
+    if (Platform.isLinux) {
+      _secureStorage = const FlutterSecureStorage(
+        aOptions: AndroidOptions(
+          encryptedSharedPreferences: true,
+        ),
+        lOptions: LinuxOptions(),
+      );
+    } else {
+      _secureStorage = const FlutterSecureStorage();
     }
   }
 
-  // Get current access token
-  Future<String?> getAccessToken() async {
-    return await _storage.read(key: StorageKeys.accessToken);
+  Future<void> _initPrefs() async {
+    _prefs = await SharedPreferences.getInstance();
   }
 
-  // Get current refresh token
-  Future<String?> getRefreshToken() async {
-    return await _storage.read(key: StorageKeys.refreshToken);
-  }
-
-  // Get current user
-  Future<User?> getCurrentUser() async {
+  Future<String?> getToken() async {
     try {
-      final userJson = await _storage.read(key: StorageKeys.userId);
-      if (userJson != null) {
-        return User.fromJson(jsonDecode(userJson));
-      }
+      // Try secure storage first
+      return await _secureStorage.read(key: StorageKeys.authToken);
     } catch (e) {
-      // Handle error
+      print('⚠️ Secure storage failed, using SharedPreferences: $e');
+      // Fallback to SharedPreferences
+      return _prefs?.getString(StorageKeys.authToken);
+    }
+  }
+
+  Future<void> saveToken(String token) async {
+    try {
+      // Try secure storage first
+      await _secureStorage.write(key: StorageKeys.authToken, value: token);
+    } catch (e) {
+      print('⚠️ Secure storage failed, using SharedPreferences: $e');
+      // Fallback to SharedPreferences
+      await _prefs?.setString(StorageKeys.authToken, token);
+    }
+  }
+
+  Future<void> saveUser(User user) async {
+    final userData = jsonEncode(user.toJson());
+    try {
+      // Try secure storage first
+      await _secureStorage.write(key: StorageKeys.userData, value: userData);
+    } catch (e) {
+      print('⚠️ Secure storage failed, using SharedPreferences: $e');
+      // Fallback to SharedPreferences
+      await _prefs?.setString(StorageKeys.userData, userData);
+    }
+  }
+
+  Future<User?> getUser() async {
+    String? userData;
+    try {
+      // Try secure storage first
+      userData = await _secureStorage.read(key: StorageKeys.userData);
+    } catch (e) {
+      print('⚠️ Secure storage failed, using SharedPreferences: $e');
+      // Fallback to SharedPreferences
+      userData = _prefs?.getString(StorageKeys.userData);
+    }
+    
+    if (userData != null) {
+      return User.fromJson(jsonDecode(userData));
     }
     return null;
   }
 
-  // Login user
-  Future<LoginResponse> login(String email, String password) async {
+  Future<void> clearAuth() async {
     try {
-      // For development, allow demo credentials
-      if (email == 'demo@example.com' && password == 'password123') {
-        // Create mock user and tokens for development
-        final mockUser = User(
-          id: '1',
-          email: email,
-          name: 'Demo User',
-          avatar: null,
-          createdAt: DateTime.now(),
-          updatedAt: DateTime.now(),
-          isActive: true,
-          roles: ['user'],
-        );
-        
-        final mockResponse = LoginResponse(
-          user: mockUser,
-          accessToken: 'mock_access_token_${DateTime.now().millisecondsSinceEpoch}',
-          refreshToken: 'mock_refresh_token_${DateTime.now().millisecondsSinceEpoch}',
-          expiresIn: 3600, // 1 hour in seconds
-        );
-        
-        // Store tokens and user data
-        await _storage.write(key: StorageKeys.accessToken, value: mockResponse.accessToken);
-        await _storage.write(key: StorageKeys.refreshToken, value: mockResponse.refreshToken);
-        await _storage.write(key: StorageKeys.userId, value: jsonEncode(mockResponse.user.toJson()));
-        await _storage.write(key: StorageKeys.userEmail, value: mockResponse.user.email);
-        await _storage.write(key: StorageKeys.lastLoginTime, value: DateTime.now().toIso8601String());
-        
-        return mockResponse;
-      }
-      
-      // For production, use real API
-      final request = LoginRequest(email: email, password: password);
-      final response = await _httpClient.post(
-        Uri.parse('${ApiEndpoints.baseUrl}${ApiEndpoints.login}'),
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode(request.toJson()),
-      );
-
-      if (response.statusCode == 200) {
-        final loginResponse = LoginResponse.fromJson(jsonDecode(response.body));
-        
-        // Store tokens and user data
-        await _storage.write(key: StorageKeys.accessToken, value: loginResponse.accessToken);
-        await _storage.write(key: StorageKeys.refreshToken, value: loginResponse.refreshToken);
-        await _storage.write(key: StorageKeys.userId, value: jsonEncode(loginResponse.user.toJson()));
-        await _storage.write(key: StorageKeys.userEmail, value: loginResponse.user.email);
-        await _storage.write(key: StorageKeys.lastLoginTime, value: DateTime.now().toIso8601String());
-        
-        return loginResponse;
-      } else {
-        final error = jsonDecode(response.body);
-        throw AuthException(error['message'] ?? 'Login failed');
-      }
+      await _secureStorage.delete(key: StorageKeys.authToken);
+      await _secureStorage.delete(key: StorageKeys.userData);
     } catch (e) {
-      if (e is AuthException) rethrow;
-      throw AuthException('Network error: ${e.toString()}');
+      print('⚠️ Secure storage clear failed: $e');
     }
+    
+    // Also clear SharedPreferences
+    await _prefs?.remove(StorageKeys.authToken);
+    await _prefs?.remove(StorageKeys.userData);
   }
 
-  // Refresh access token
-  Future<RefreshTokenResponse> refreshToken() async {
-    try {
-      final refreshToken = await getRefreshToken();
-      if (refreshToken == null) {
-        throw AuthException('No refresh token available');
-      }
-
-      final request = RefreshTokenRequest(refreshToken: refreshToken);
-      final response = await _httpClient.post(
-        Uri.parse('${ApiEndpoints.baseUrl}${ApiEndpoints.refresh}'),
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode(request.toJson()),
-      );
-
-      if (response.statusCode == 200) {
-        final refreshResponse = RefreshTokenResponse.fromJson(jsonDecode(response.body));
-        
-        // Update stored tokens
-        await _storage.write(key: StorageKeys.accessToken, value: refreshResponse.accessToken);
-        await _storage.write(key: StorageKeys.refreshToken, value: refreshResponse.refreshToken);
-        
-        return refreshResponse;
-      } else {
-        final error = jsonDecode(response.body);
-        throw AuthException(error['message'] ?? 'Token refresh failed');
-      }
-    } catch (e) {
-      if (e is AuthException) rethrow;
-      throw AuthException('Network error: ${e.toString()}');
+  // Helper method to make authenticated API calls
+  Future<http.Response> _makeAuthenticatedRequest(
+    String url, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+  }) async {
+    final token = await getToken();
+    if (token == null) {
+      throw Exception('No authentication token available');
     }
-  }
 
-  // Logout user
-  Future<void> logout() async {
-    try {
-      final token = await getAccessToken();
-      if (token != null) {
-        // Call logout endpoint
-        await _httpClient.post(
-          Uri.parse('${ApiEndpoints.baseUrl}${ApiEndpoints.logout}'),
-          headers: {
-            'Authorization': 'Bearer $token',
-            'Content-Type': 'application/json',
-          },
-        );
-      }
-    } catch (e) {
-      // Continue with local logout even if server call fails
-    } finally {
-      // Clear all stored data
-      await _storage.deleteAll();
-    }
-  }
-
-  // Clear all stored data (for logout or session expiry)
-  Future<void> clearSession() async {
-    await _storage.deleteAll();
-  }
-
-  // Get authenticated HTTP headers
-  Future<Map<String, String>> getAuthHeaders() async {
-    final token = await getAccessToken();
-    return {
+    final headers = {
       'Authorization': 'Bearer $token',
       'Content-Type': 'application/json',
     };
+
+    switch (method.toUpperCase()) {
+      case 'GET':
+        return await http.get(Uri.parse(url), headers: headers);
+      case 'POST':
+        return await http.post(
+          Uri.parse(url),
+          headers: headers,
+          body: body != null ? jsonEncode(body) : null,
+        );
+      case 'PUT':
+        return await http.put(
+          Uri.parse(url),
+          headers: headers,
+          body: body != null ? jsonEncode(body) : null,
+        );
+      case 'DELETE':
+        return await http.delete(Uri.parse(url), headers: headers);
+      default:
+        throw Exception('Unsupported HTTP method: $method');
+    }
   }
 
-  // Check if token needs refresh
-  Future<bool> shouldRefreshToken() async {
+  Future<Map<String, dynamic>> login(String email, String password) async {
     try {
-      final lastLoginTime = await _storage.read(key: StorageKeys.lastLoginTime);
-      if (lastLoginTime != null) {
-        final lastLogin = DateTime.parse(lastLoginTime);
-        final now = DateTime.now();
-        final difference = now.difference(lastLogin);
-        return difference.inMinutes >= AppConfig.tokenRefreshThreshold.inMinutes;
+      print('📡 AuthService.login() - Making API call to: ${ApiEndpoints.login}');
+      
+      final response = await http.post(
+        Uri.parse(ApiEndpoints.login),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'email': email,
+          'password': password,
+        }),
+      );
+
+      print('📡 AuthService.login() - Response status: ${response.statusCode}');
+      print('📡 AuthService.login() - Response body: ${response.body}');
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final data = jsonDecode(response.body);
+        print('📡 AuthService.login() - Parsed data: $data');
+        
+        final user = User.fromJson(data['user']);
+        final token = data['token'];
+
+        print('📡 AuthService.login() - User: $user');
+        print('📡 AuthService.login() - Token: $token');
+
+        // Try to save token and user, but don't fail if secure storage fails
+        try {
+          await saveToken(token);
+          await saveUser(user);
+          print('📡 AuthService.login() - Success! Returning success response');
+        } catch (storageError) {
+          print('📡 AuthService.login() - Storage failed but continuing: $storageError');
+          // Continue even if storage fails - the authentication was successful
+        }
+
+        return {
+          'success': true,
+          'user': user,
+          'token': token,
+        };
+      } else {
+        final error = jsonDecode(response.body);
+        print('📡 AuthService.login() - Error response: $error');
+        return {
+          'success': false,
+          'error': error['message'] ?? 'Login failed',
+        };
       }
     } catch (e) {
-      // If we can't determine, assume we need refresh
+      print('📡 AuthService.login() - Exception: $e');
+      return {
+        'success': false,
+        'error': 'Network error: $e',
+      };
     }
-    return true;
   }
 
-  void dispose() {
-    _httpClient.close();
+  Future<Map<String, dynamic>> register(String email, String password, String firstName, String lastName) async {
+    try {
+      final response = await http.post(
+        Uri.parse(ApiEndpoints.register),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'email': email,
+          'password': password,
+          'firstName': firstName,
+          'lastName': lastName,
+        }),
+      );
+
+      if (response.statusCode == 201) {
+        final data = jsonDecode(response.body);
+        final user = User.fromJson(data['user']);
+        final token = data['token'];
+
+        // Try to save token and user, but don't fail if secure storage fails
+        try {
+          await saveToken(token);
+          await saveUser(user);
+        } catch (storageError) {
+          print('📡 AuthService.register() - Storage failed but continuing: $storageError');
+          // Continue even if storage fails - the registration was successful
+        }
+
+        return {
+          'success': true,
+          'user': user,
+          'token': token,
+        };
+      } else {
+        final error = jsonDecode(response.body);
+        return {
+          'success': false,
+          'error': error['message'] ?? 'Registration failed',
+        };
+      }
+    } catch (e) {
+      return {
+        'success': false,
+        'error': 'Network error: $e',
+      };
+    }
+  }
+
+  Future<bool> isAuthenticated() async {
+    final token = await getToken();
+    return token != null;
+  }
+
+  // Method to test if the current token is valid
+  Future<bool> isTokenValid() async {
+    try {
+      final response = await _makeAuthenticatedRequest(ApiEndpoints.profile);
+      return response.statusCode == 200;
+    } catch (e) {
+      print('Token validation failed: $e');
+      return false;
+    }
+  }
+
+  // Method to refresh authentication if needed
+  Future<bool> refreshAuthentication() async {
+    try {
+      // Try to validate current token
+      if (await isTokenValid()) {
+        return true;
+      }
+
+      // If token is invalid, try to login again with stored credentials
+      final user = await getUser();
+      if (user != null) {
+        // For now, we'll just clear the invalid token
+        // In a real app, you might want to implement refresh token logic
+        await clearAuth();
+        return false;
+      }
+      return false;
+    } catch (e) {
+      print('Authentication refresh failed: $e');
+      return false;
+    }
   }
 }
 

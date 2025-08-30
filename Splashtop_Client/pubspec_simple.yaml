@@ -1,0 +1,58 @@
+name: splashtop_client
+description: "A SplashTop-like remote desktop client built with Flutter"
+publish_to: "none"
+
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.9.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+
+  # HTTP client for API communication
+  http: ^1.1.0
+
+  # State management
+  provider: ^6.1.1
+
+  # Local storage
+  shared_preferences: ^2.2.2
+
+  # WebSocket for real-time communication
+  web_socket_channel: ^2.4.0
+
+  # Socket.IO for WebRTC signaling
+  socket_io_client: ^2.0.3+1
+
+  # JSON serialization
+  json_annotation: ^4.8.1
+
+  # Secure storage for tokens
+  flutter_secure_storage: ^9.0.0
+
+  # Permission handling
+  permission_handler: ^11.0.1
+
+  # Image caching
+  cached_network_image: ^3.3.0
+
+  # UI components
+  flutter_svg: ^2.0.9
+  google_fonts: ^6.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^4.0.0
+
+  # JSON code generation
+  json_serializable: ^6.7.1
+  build_runner: ^2.4.7
+
+flutter:
+  uses-material-design: true

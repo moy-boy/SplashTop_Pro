@@ -1,306 +1,151 @@
-# SplashTop Client
+# SplashTop Client - Test Mode
 
-A Flutter-based remote desktop client application that allows users to connect to and control remote computers through WebRTC technology. This is part of a SplashTop-like remote desktop solution.
+A simplified Flutter client for testing remote desktop streaming with the SplashTop Streamer.
 
 ## Features
 
-### 🔐 Authentication
+- **Direct WebRTC Connection**: Connects directly to the streamer without authentication
+- **Real-time Video Streaming**: Displays remote desktop video stream
+- **Input Testing**: Test mouse, keyboard, and scroll events
+- **Connection Status**: Real-time connection status and error reporting
+- **Simple UI**: Clean, minimal interface for testing
 
-- Secure login with email/password
-- JWT token-based authentication
-- Automatic token refresh
-- Secure storage of credentials
-
-### 🖥️ PC Management
-
-- View list of available remote computers
-- Add, edit, and delete computer entries
-- Filter computers by platform (Windows, macOS, Linux)
-- Filter by status (Online, Offline, Busy, Sleeping)
-- Search functionality
-- Real-time status updates
-
-### 🎥 Remote Desktop Streaming
-
-- WebRTC-based video streaming
-- Low-latency peer-to-peer connections
-- Hardware-accelerated video rendering
-- Fullscreen mode support
-- Connection status monitoring
-
-### 🖱️ Input Control
-
-- Mouse movement and clicks
-- Right-click support
-- Keyboard input (via on-screen keyboard or external keyboard)
-- Touch gesture support
-- Relative coordinate mapping
-
-### 🎨 Modern UI
-
-- Material Design 3
-- Responsive layout
-- Dark/light theme support
-- Intuitive navigation
-- Error handling and loading states
-
-## Tech Stack
-
-### Frontend
-
-- **Framework**: Flutter 3.35.1
-- **Language**: Dart 3.9.0
-- **State Management**: Provider pattern
-- **UI**: Material Design 3 with Google Fonts
-
-### WebRTC & Networking
-
-- **WebRTC**: flutter_webrtc for peer-to-peer communication
-- **HTTP Client**: http package for API communication
-- **WebSocket**: web_socket_channel for real-time signaling
-- **Security**: flutter_secure_storage for token management
-
-### Dependencies
-
-- `flutter_webrtc`: WebRTC implementation
-- `provider`: State management
-- `http`: HTTP client
-- `web_socket_channel`: WebSocket communication
-- `flutter_secure_storage`: Secure storage
-- `shared_preferences`: Local storage
-- `json_annotation`: JSON serialization
-- `google_fonts`: Typography
-- `permission_handler`: Permission management
-
-## Project Structure
-
-```
-lib/
-├── main.dart                 # App entry point
-├── models/                   # Data models
-│   ├── user.dart            # User model
-│   └── pc.dart              # PC model
-├── services/                 # Business logic services
-│   ├── auth_service.dart    # Authentication service
-│   ├── api_service.dart     # API communication
-│   └── webrtc_service.dart  # WebRTC streaming
-├── providers/               # State management
-│   ├── auth_provider.dart   # Authentication state
-│   └── pc_list_provider.dart # PC list state
-├── screens/                 # UI screens
-│   ├── login_screen.dart    # Login screen
-│   ├── home_screen.dart     # Main screen
-│   └── streaming_screen.dart # Remote desktop screen
-└── utils/                   # Utilities
-    └── constants.dart       # App constants
-```
-
-## Getting Started
+## Quick Start
 
 ### Prerequisites
 
-- Flutter SDK 3.35.1 or higher
-- Dart 3.9.0 or higher
-- Android Studio / VS Code with Flutter extensions
-- Backend server running (see backend documentation)
+1. **Flutter SDK**: Make sure Flutter is installed and configured
+2. **SplashTop Streamer**: The C++ streamer should be running on `localhost:8080`
 
-### Installation
+### Running the Client
 
-1. **Clone the repository**
-
-   ```bash
-   git clone <repository-url>
-   cd splashtop_client
-   ```
-
-2. **Install dependencies**
+1. **Install Dependencies**:
 
    ```bash
    flutter pub get
    ```
 
-3. **Configure backend URL**
-   Edit `lib/utils/constants.dart` and update the `ApiEndpoints.baseUrl` to point to your backend server:
+2. **Run the App**:
 
-   ```dart
-   static const String baseUrl = 'http://your-backend-server:3000/api';
-   ```
-
-4. **Run the application**
    ```bash
-   flutter run
+   flutter run -d linux
    ```
 
-### Platform Support
+3. **Connect to Streamer**:
+   - Click the "Connect" button in the app
+   - The app will attempt to connect to `ws://localhost:8080`
+   - Once connected, you should see the remote desktop stream
 
-The app supports multiple platforms:
+### Testing Input Events
 
-- **Android**: Full support with hardware acceleration
-- **iOS**: Full support with hardware acceleration
-- **Web**: Basic support (limited WebRTC capabilities)
-- **Windows**: Full support
-- **macOS**: Full support
-- **Linux**: Full support
+Once connected, you can test:
 
-## Usage
+- **Mouse Events**: Click "Test Mouse" to send a mouse click
+- **Keyboard Events**: Click "Test Keyboard" to send a key press
+- **Scroll Events**: Click "Test Scroll" to send a scroll event
 
-### Authentication
+## Architecture
 
-1. Launch the app
-2. Enter your email and password
-3. Tap "Sign In"
-4. The app will automatically navigate to the home screen upon successful authentication
+### Key Components
 
-### Managing Computers
+- **StreamingScreen**: Main UI for video display and controls
+- **WebRTC Integration**: Direct peer-to-peer connection with streamer
+- **WebSocket Signaling**: Real-time communication with streamer
+- **Input Handling**: Mouse, keyboard, and scroll event transmission
 
-1. **View Computers**: The home screen displays all your registered computers
-2. **Add Computer**: Tap the floating action button (+) to add a new computer
-3. **Filter Computers**: Use the search bar and filters to find specific computers
-4. **Edit/Delete**: Use the menu on each computer card to edit or delete
+### Connection Flow
 
-### Remote Desktop Connection
-
-1. **Connect**: Tap the "Connect" option on an available computer
-2. **Wait for Connection**: The app will establish a WebRTC connection
-3. **Control**: Use touch gestures to control the remote desktop:
-   - Tap to left-click
-   - Long press to right-click
-   - Drag to move mouse
-   - Use fullscreen mode for better experience
-
-### Controls
-
-- **Mouse**: Tap and drag to control the remote mouse
-- **Keyboard**: Use the on-screen keyboard or connect an external keyboard
-- **Fullscreen**: Tap the fullscreen button for immersive experience
-- **Settings**: Access streaming quality and other settings
-- **Help**: View control instructions and shortcuts
+1. **WebSocket Connection**: Connects to `ws://localhost:8080`
+2. **WebRTC Setup**: Creates peer connection with ICE servers
+3. **Signaling**: Exchanges SDP offers/answers and ICE candidates
+4. **Video Stream**: Receives and displays remote desktop video
+5. **Input Events**: Sends mouse/keyboard events to streamer
 
 ## Configuration
 
-### Backend Integration
+### WebRTC Settings
 
-The app expects a backend server with the following endpoints:
+Edit `lib/utils/constants.dart` to modify:
 
-- `POST /api/auth/login` - User authentication
-- `POST /api/auth/refresh` - Token refresh
-- `POST /api/auth/logout` - User logout
-- `GET /api/pcs` - Get user's computers
-- `POST /api/pcs` - Add new computer
-- `PUT /api/pcs/{id}` - Update computer
-- `DELETE /api/pcs/{id}` - Delete computer
-- `POST /api/pcs/{id}/connect` - Request connection
-- `GET /api/signaling/{sessionId}` - Get signaling data
-- `POST /api/signaling/{sessionId}` - Send signaling data
+- **ICE Servers**: STUN/TURN server configuration
+- **Connection Timeout**: WebSocket connection timeout
+- **Keep Alive**: Connection keep-alive interval
 
-### WebRTC Configuration
+### Streamer URL
 
-WebRTC settings can be configured in `lib/utils/constants.dart`:
+The client connects to `ws://localhost:8080` by default. To change this:
 
-- ICE servers (STUN/TURN)
-- Media constraints
-- Connection timeouts
-
-## Development
-
-### Code Generation
-
-The project uses JSON serialization. After modifying models, run:
-
-```bash
-flutter packages pub run build_runner build
-```
-
-### Testing
-
-```bash
-flutter test
-```
-
-### Building for Production
-
-```bash
-# Android APK
-flutter build apk --release
-
-# iOS
-flutter build ios --release
-
-# Web
-flutter build web --release
-```
-
-## Security Features
-
-- **End-to-end encryption**: WebRTC DTLS-SRTP
-- **Secure token storage**: flutter_secure_storage
-- **HTTPS communication**: All API calls use HTTPS
-- **Input validation**: Form validation and sanitization
-- **Session management**: Automatic token refresh and logout
-
-## Performance Optimizations
-
-- **Hardware acceleration**: WebRTC uses hardware encoders/decoders
-- **Efficient state management**: Provider pattern with minimal rebuilds
-- **Image caching**: Cached network images
-- **Lazy loading**: Load data only when needed
-- **Connection pooling**: Reuse HTTP connections
+1. Update `AppConfig.streamerUrl` in `lib/utils/constants.dart`
+2. Or modify the URL in `lib/screens/streaming_screen.dart`
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **Connection Failed**
+1. **Connection Failed**:
 
-   - Check backend server is running
-   - Verify network connectivity
+   - Ensure the streamer is running on `localhost:8080`
    - Check firewall settings
+   - Verify WebSocket server is active
 
-2. **WebRTC Issues**
+2. **No Video Stream**:
 
-   - Ensure STUN/TURN servers are configured
-   - Check browser permissions for camera/microphone
-   - Verify WebRTC is supported on the platform
+   - Check streamer logs for video encoding issues
+   - Verify WebRTC connection is established
+   - Check browser console for WebRTC errors
 
-3. **Authentication Errors**
-   - Verify backend URL is correct
-   - Check token expiration
-   - Clear app data and re-login
+3. **Input Not Working**:
+   - Verify connection status is "Connected"
+   - Check streamer input handling
+   - Test with different input types
 
 ### Debug Mode
 
-The app includes demo credentials in debug mode:
+Run with debug output:
 
-- Email: `demo@example.com`
-- Password: `password123`
+```bash
+flutter run -d linux --debug
+```
 
-## Contributing
+## Development
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
+### Project Structure
+
+```
+lib/
+├── main.dart              # App entry point
+├── screens/
+│   └── streaming_screen.dart  # Main streaming interface
+└── utils/
+    └── constants.dart     # Configuration constants
+```
+
+### Adding Features
+
+1. **New Input Types**: Add to `_sendInputEvent()` method
+2. **UI Improvements**: Modify `StreamingScreen` widget
+3. **Connection Logic**: Update WebRTC and WebSocket handling
+
+## Testing
+
+Run the test suite:
+
+```bash
+flutter test
+```
+
+The test verifies that the app can be built and initialized without errors.
+
+## Next Steps
+
+This is a test client for development and debugging. For production:
+
+1. **Add Authentication**: Implement user login and session management
+2. **PC Management**: Add list of available remote computers
+3. **Settings**: Add quality, audio, and connection settings
+4. **Error Handling**: Improve error recovery and user feedback
+5. **Security**: Add encryption and secure communication
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Support
-
-For support and questions:
-
-- Create an issue in the repository
-- Check the troubleshooting section
-- Review the backend documentation
-
-## Roadmap
-
-- [ ] File transfer support
-- [ ] Clipboard synchronization
-- [ ] Multi-monitor support
-- [ ] Audio streaming
-- [ ] Mobile-specific optimizations
-- [ ] Offline mode
-- [ ] Push notifications
-- [ ] Advanced security features
+This project is for testing and development purposes.

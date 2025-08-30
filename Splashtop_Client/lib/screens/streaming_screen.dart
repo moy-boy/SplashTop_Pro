@@ -1,527 +1,399 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:socket_io_client/socket_io_client.dart' as IO;
+import 'dart:convert';
+import 'dart:typed_data';
 import '../models/pc.dart';
-import '../services/webrtc_service.dart' as webrtc;
 import '../utils/constants.dart';
 
 class StreamingScreen extends StatefulWidget {
-  final PC pc;
-  final Map<String, dynamic> connectionData;
+  final PC? pc;
 
-  const StreamingScreen({
-    super.key,
-    required this.pc,
-    required this.connectionData,
-  });
+  const StreamingScreen({super.key, this.pc});
 
   @override
   State<StreamingScreen> createState() => _StreamingScreenState();
 }
 
 class _StreamingScreenState extends State<StreamingScreen> {
-  final webrtc.WebRTCService _webrtcService = webrtc.WebRTCService();
-  final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
-  
-  bool _isInitialized = false;
-  bool _isFullscreen = false;
-  bool _showControls = true;
-  String? _errorMessage;
+  RTCPeerConnection? _peerConnection;
+  RTCVideoRenderer? _remoteRenderer;
+  IO.Socket? _socket;
+  bool _isConnected = false;
+  bool _isConnecting = false;
+  String _connectionStatus = 'Disconnected';
+  String _errorMessage = '';
 
   @override
   void initState() {
     super.initState();
-    _initializeStreaming();
+    _initializeRenderer();
+    if (widget.pc != null) {
+      _connectToPC();
+    }
   }
 
-  Future<void> _initializeStreaming() async {
+  Future<void> _initializeRenderer() async {
+    _remoteRenderer = RTCVideoRenderer();
+    await _remoteRenderer!.initialize();
+  }
+
+  Future<void> _connectToPC() async {
+    if (!mounted) return;
+    setState(() {
+      _isConnecting = true;
+      _connectionStatus = 'Connecting...';
+      _errorMessage = '';
+    });
+
     try {
-      // Initialize video renderer
-      await _remoteRenderer.initialize();
-      
-      // Set up WebRTC service listeners
-              _webrtcService.remoteStreamStream.listen((stream) {
-          _remoteRenderer.srcObject = stream;
-        });
+      // Connect to signaling server
+      _socket = IO.io(AppConfig.serverUrl, <String, dynamic>{
+        'transports': ['websocket'],
+        'autoConnect': true,
+      });
 
-      _webrtcService.connectionStateStream.listen((state) {
+      _socket!.onConnect((_) {
+        print('Connected to signaling server');
+        _registerAsClient();
+      });
+
+      _socket!.onDisconnect((_) {
         if (mounted) {
           setState(() {
-            if (state == webrtc.ConnectionState.failed) {
-              _errorMessage = 'Connection failed';
-            }
+            _connectionStatus = 'Disconnected';
+            _isConnected = false;
+            _isConnecting = false;
           });
         }
       });
 
-      _webrtcService.errorStream.listen((error) {
+      _socket!.on('offer', (data) {
+        _handleOffer(data);
+      });
+
+      _socket!.on('answer', (data) {
+        _handleAnswer(data);
+      });
+
+      _socket!.on('ice-candidate', (data) {
+        _handleIceCandidate(data);
+      });
+
+      _socket!.on('connected', (data) {
         if (mounted) {
           setState(() {
-            _errorMessage = error;
+            _connectionStatus = 'Connected to streamer';
+            _isConnected = true;
+            _isConnecting = false;
           });
         }
       });
 
-      // Initialize WebRTC connection
-      final sessionId = widget.connectionData['sessionId'];
-      final signalingUrl = widget.connectionData['signalingUrl'];
-      
-      await _webrtcService.initializeConnection(sessionId, signalingUrl);
-      
-      if (mounted) {
-        setState(() {
-          _isInitialized = true;
-        });
-      }
+      _socket!.on('error', (data) {
+        if (mounted) {
+          setState(() {
+            _errorMessage = data['message'] ?? 'Unknown error';
+            _connectionStatus = 'Error';
+            _isConnecting = false;
+          });
+        }
+      });
+
+      // Create peer connection
+      await _createPeerConnection();
+
+      // Request connection to streamer
+      _socket!.emit('connect-request', {
+        'streamerId': widget.pc!.deviceId,
+      });
 
     } catch (e) {
       if (mounted) {
         setState(() {
-          _errorMessage = 'Failed to initialize streaming: ${e.toString()}';
+          _errorMessage = 'Connection error: $e';
+          _connectionStatus = 'Connection failed';
+          _isConnecting = false;
         });
       }
     }
   }
 
-  @override
-  void dispose() {
-    _webrtcService.dispose();
-    _remoteRenderer.dispose();
-    super.dispose();
+  void _registerAsClient() {
+    _socket!.emit('register', {
+      'type': 'client',
+      'userId': 'user-id', // TODO: Get from auth provider
+    });
   }
 
-  void _toggleFullscreen() {
-    setState(() {
-      _isFullscreen = !_isFullscreen;
-    });
-    
-    if (_isFullscreen) {
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersive);
-    } else {
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  Future<void> _createPeerConnection() async {
+    final configuration = {
+      'iceServers': WebRTCConfig.iceServers,
+    };
+
+    _peerConnection = await createPeerConnection(configuration, {});
+
+    // Set up event handlers
+    _peerConnection!.onIceCandidate = (candidate) {
+      _socket!.emit('ice-candidate', {
+        'candidate': candidate.toMap(),
+        'target': widget.pc!.deviceId,
+      });
+    };
+
+    _peerConnection!.onConnectionState = (state) {
+      if (mounted) {
+        setState(() {
+          switch (state) {
+            case RTCPeerConnectionState.RTCPeerConnectionStateConnected:
+              _connectionStatus = 'Connected';
+              _isConnected = true;
+              break;
+            case RTCPeerConnectionState.RTCPeerConnectionStateDisconnected:
+              _connectionStatus = 'Disconnected';
+              _isConnected = false;
+              break;
+            case RTCPeerConnectionState.RTCPeerConnectionStateFailed:
+              _connectionStatus = 'Connection failed';
+              _isConnected = false;
+              break;
+            default:
+              _connectionStatus = 'Connecting...';
+          }
+          _isConnecting = false;
+        });
+      }
+    };
+
+    _peerConnection!.onTrack = (event) {
+      if (event.track.kind == 'video') {
+        _remoteRenderer!.srcObject = event.streams[0];
+      }
+    };
+  }
+
+  Future<void> _handleOffer(dynamic data) async {
+    try {
+      final offer = RTCSessionDescription(
+        data['offer']['sdp'],
+        data['offer']['type'],
+      );
+      await _peerConnection!.setRemoteDescription(offer);
+
+      final answer = await _peerConnection!.createAnswer();
+      await _peerConnection!.setLocalDescription(answer);
+
+      _socket!.emit('answer', {
+        'answer': answer.toMap(),
+        'target': data['from'],
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Failed to handle offer: $e';
+        });
+      }
     }
   }
 
-  void _toggleControls() {
-    setState(() {
-      _showControls = !_showControls;
-    });
+  Future<void> _handleAnswer(dynamic data) async {
+    try {
+      final answer = RTCSessionDescription(
+        data['answer']['sdp'],
+        data['answer']['type'],
+      );
+      await _peerConnection!.setRemoteDescription(answer);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Failed to handle answer: $e';
+        });
+      }
+    }
+  }
+
+  Future<void> _handleIceCandidate(dynamic data) async {
+    try {
+      final candidate = RTCIceCandidate(
+        data['candidate']['candidate'],
+        data['candidate']['sdpMid'],
+        data['candidate']['sdpMLineIndex'],
+      );
+      await _peerConnection!.addCandidate(candidate);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Failed to handle ICE candidate: $e';
+        });
+      }
+    }
+  }
+
+  void _sendInputEvent(String type, Map<String, dynamic> data) {
+    if (_isConnected && _peerConnection != null) {
+      // Send input event via WebRTC data channel
+      // This is a simplified version - you'll need to implement data channel
+      print('Sending input event: $type - $data');
+    }
   }
 
   void _disconnect() {
-    _webrtcService.disconnect();
-    Navigator.of(context).pop();
+    _socket?.disconnect();
+    _peerConnection?.close();
+    if (mounted) {
+      setState(() {
+        _isConnected = false;
+        _connectionStatus = 'Disconnected';
+        _errorMessage = '';
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
-      body: _isFullscreen ? _buildFullscreenView() : _buildNormalView(),
-    );
-  }
-
-  Widget _buildNormalView() {
-    return Column(
-      children: [
-        // App Bar
-        if (_showControls)
+      appBar: AppBar(
+        title: Text(widget.pc?.name ?? 'Remote Desktop'),
+        backgroundColor: AppColors.primary,
+        foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: Icon(_isConnected ? Icons.stop : Icons.play_arrow),
+            onPressed: _isConnected ? _disconnect : _connectToPC,
+            tooltip: _isConnected ? 'Disconnect' : 'Connect',
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          // Status bar
           Container(
-            color: AppColors.primary,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: const EdgeInsets.all(16),
+            color: _isConnected ? Colors.green.shade50 : Colors.orange.shade50,
             child: Row(
               children: [
-                IconButton(
-                  icon: const Icon(Icons.arrow_back, color: Colors.white),
-                  onPressed: _disconnect,
+                Icon(
+                  _isConnected ? Icons.check_circle : Icons.warning,
+                  color: _isConnected ? Colors.green : Colors.orange,
                 ),
+                const SizedBox(width: 8),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        widget.pc.name,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
+                        _connectionStatus,
+                        style: TextStyle(
                           fontWeight: FontWeight.bold,
+                          color: _isConnected ? Colors.green : Colors.orange,
                         ),
                       ),
-                      Text(
-                        widget.pc.platform.name.toUpperCase(),
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 12,
+                      if (_errorMessage.isNotEmpty)
+                        Text(
+                          _errorMessage,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.red,
+                          ),
                         ),
-                      ),
                     ],
                   ),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.fullscreen, color: Colors.white),
-                  onPressed: _toggleFullscreen,
-                ),
-                IconButton(
-                  icon: const Icon(Icons.close, color: Colors.white),
-                  onPressed: _disconnect,
-                ),
+                if (_isConnecting)
+                  const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
               ],
             ),
           ),
-        
-        // Video Stream
-        Expanded(
-          child: _buildVideoStream(),
-        ),
-        
-        // Control Bar
-        if (_showControls)
+
+          // Video display
+          Expanded(
+            child: Container(
+              margin: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey.shade300),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: _isConnected && _remoteRenderer != null
+                    ? RTCVideoView(
+                        _remoteRenderer!,
+                        objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+                      )
+                    : Container(
+                        color: Colors.black,
+                        child: const Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.videocam_off,
+                                size: 64,
+                                color: Colors.white54,
+                              ),
+                              SizedBox(height: 16),
+                              Text(
+                                'No video stream',
+                                style: TextStyle(
+                                  color: Colors.white54,
+                                  fontSize: 18,
+                                ),
+                              ),
+                              SizedBox(height: 8),
+                              Text(
+                                'Connect to streamer to view remote desktop',
+                                style: TextStyle(
+                                  color: Colors.white38,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+              ),
+            ),
+          ),
+
+          // Control buttons
           Container(
-            color: Colors.black87,
             padding: const EdgeInsets.all(16),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                _buildControlButton(
-                  icon: Icons.mouse,
-                  label: 'Mouse',
-                  onPressed: () => _showMouseControls(),
+                ElevatedButton.icon(
+                  onPressed: _isConnected ? () => _sendInputEvent('mouse', {'x': 100, 'y': 100, 'button': 'left'}) : null,
+                  icon: const Icon(Icons.mouse),
+                  label: const Text('Test Mouse'),
                 ),
-                _buildControlButton(
-                  icon: Icons.keyboard,
-                  label: 'Keyboard',
-                  onPressed: () => _showKeyboardControls(),
+                ElevatedButton.icon(
+                  onPressed: _isConnected ? () => _sendInputEvent('keyboard', {'key': 'A', 'modifiers': []}) : null,
+                  icon: const Icon(Icons.keyboard),
+                  label: const Text('Test Keyboard'),
                 ),
-                _buildControlButton(
-                  icon: Icons.settings,
-                  label: 'Settings',
-                  onPressed: () => _showSettings(),
-                ),
-                _buildControlButton(
-                  icon: Icons.help,
-                  label: 'Help',
-                  onPressed: () => _showHelp(),
+                ElevatedButton.icon(
+                  onPressed: _isConnected ? () => _sendInputEvent('scroll', {'deltaX': 0, 'deltaY': 100}) : null,
+                  icon: const Icon(Icons.mouse_outlined),
+                  label: const Text('Test Scroll'),
                 ),
               ],
             ),
           ),
-      ],
-    );
-  }
-
-  Widget _buildFullscreenView() {
-    return GestureDetector(
-      onTap: _toggleControls,
-      child: Stack(
-        children: [
-          // Video Stream (full screen)
-          _buildVideoStream(),
-          
-          // Fullscreen Controls
-          if (_showControls)
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: Container(
-                color: Colors.black54,
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.fullscreen_exit, color: Colors.white),
-                      onPressed: _toggleFullscreen,
-                    ),
-                    Expanded(
-                      child: Text(
-                        widget.pc.name,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close, color: Colors.white),
-                      onPressed: _disconnect,
-                    ),
-                  ],
-                ),
-              ),
-            ),
         ],
       ),
     );
   }
 
-  Widget _buildVideoStream() {
-    if (_errorMessage != null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.error_outline,
-              size: 64,
-              color: Colors.white54,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Connection Error',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                color: Colors.white,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              _errorMessage!,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Colors.white70,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: _disconnect,
-              child: const Text('Disconnect'),
-            ),
-          ],
-        ),
-      );
-    }
-
-    if (!_isInitialized) {
-      return const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(color: Colors.white),
-            SizedBox(height: 16),
-            Text(
-              'Connecting...',
-              style: TextStyle(color: Colors.white),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return GestureDetector(
-      onTap: _isFullscreen ? _toggleControls : null,
-      onPanUpdate: _handleMouseMove,
-      onTapDown: _handleMouseClick,
-      onSecondaryTapDown: _handleRightClick,
-      child: RTCVideoView(
-        _remoteRenderer,
-        objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
-      ),
-    );
-  }
-
-  Widget _buildControlButton({
-    required IconData icon,
-    required String label,
-    required VoidCallback onPressed,
-  }) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        IconButton(
-          icon: Icon(icon, color: Colors.white),
-          onPressed: onPressed,
-        ),
-        Text(
-          label,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 12,
-          ),
-        ),
-      ],
-    );
-  }
-
-  void _handleMouseMove(DragUpdateDetails details) {
-    if (!_webrtcService.isConnected) return;
-    
-    final renderBox = context.findRenderObject() as RenderBox;
-    final localPosition = renderBox.globalToLocal(details.globalPosition);
-    final size = renderBox.size;
-    
-    // Convert to relative coordinates (0-1)
-    final relativeX = localPosition.dx / size.width;
-    final relativeY = localPosition.dy / size.height;
-    
-    _webrtcService.sendMouseEvent(
-      type: 'move',
-      x: relativeX,
-      y: relativeY,
-    );
-  }
-
-  void _handleMouseClick(TapDownDetails details) {
-    if (!_webrtcService.isConnected) return;
-    
-    final renderBox = context.findRenderObject() as RenderBox;
-    final localPosition = renderBox.globalToLocal(details.globalPosition);
-    final size = renderBox.size;
-    
-    final relativeX = localPosition.dx / size.width;
-    final relativeY = localPosition.dy / size.height;
-    
-    _webrtcService.sendMouseEvent(
-      type: 'click',
-      x: relativeX,
-      y: relativeY,
-      button: 0, // Left click
-      pressed: true,
-    );
-    
-    // Send release event after a short delay
-    Future.delayed(const Duration(milliseconds: 50), () {
-      _webrtcService.sendMouseEvent(
-        type: 'click',
-        x: relativeX,
-        y: relativeY,
-        button: 0,
-        pressed: false,
-      );
-    });
-  }
-
-  void _handleRightClick(TapDownDetails details) {
-    if (!_webrtcService.isConnected) return;
-    
-    final renderBox = context.findRenderObject() as RenderBox;
-    final localPosition = renderBox.globalToLocal(details.globalPosition);
-    final size = renderBox.size;
-    
-    final relativeX = localPosition.dx / size.width;
-    final relativeY = localPosition.dy / size.height;
-    
-    _webrtcService.sendMouseEvent(
-      type: 'click',
-      x: relativeX,
-      y: relativeY,
-      button: 2, // Right click
-      pressed: true,
-    );
-    
-    Future.delayed(const Duration(milliseconds: 50), () {
-      _webrtcService.sendMouseEvent(
-        type: 'click',
-        x: relativeX,
-        y: relativeY,
-        button: 2,
-        pressed: false,
-      );
-    });
-  }
-
-  void _showMouseControls() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Mouse Controls'),
-        content: const Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('• Tap to left-click'),
-            Text('• Long press to right-click'),
-            Text('• Drag to move mouse'),
-            Text('• Scroll with two fingers'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showKeyboardControls() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Keyboard Controls'),
-        content: const Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('• Use on-screen keyboard'),
-            Text('• Or connect external keyboard'),
-            Text('• Common shortcuts:'),
-            Text('  - Ctrl+Alt+Del: Task Manager'),
-            Text('  - Alt+Tab: Switch windows'),
-            Text('  - Win+L: Lock screen'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showSettings() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Streaming Settings'),
-        content: const Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // TODO: Add quality settings, audio toggle, etc.
-            Text('Settings coming soon...'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showHelp() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Help'),
-        content: const Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Remote Desktop Controls:'),
-            SizedBox(height: 8),
-            Text('• Tap to left-click'),
-            Text('• Long press to right-click'),
-            Text('• Drag to move mouse'),
-            Text('• Use fullscreen for better experience'),
-            SizedBox(height: 8),
-            Text('Keyboard Shortcuts:'),
-            Text('• Ctrl+Alt+Del: Task Manager'),
-            Text('• Alt+Tab: Switch windows'),
-            Text('• Win+L: Lock screen'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
+  @override
+  void dispose() {
+    _socket?.disconnect();
+    _peerConnection?.close();
+    _remoteRenderer?.dispose();
+    super.dispose();
   }
 }

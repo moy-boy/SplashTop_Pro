@@ -7,28 +7,17 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-
 import 'package:splashtop_client/main.dart';
-import 'package:splashtop_client/services/auth_service.dart';
-import 'package:splashtop_client/services/api_service.dart';
-// import 'package:splashtop_client/services/webrtc_service.dart';
 
 void main() {
   testWidgets('SplashTop Client smoke test', (WidgetTester tester) async {
-    // Test that the app can be built without errors
-    final storage = FlutterSecureStorage();
-    final authService = AuthService(storage);
-    final apiService = ApiService();
+    // Build our app and trigger a frame.
+    await tester.pumpWidget(const MyApp());
+
+    // Verify that the app starts with the streaming screen
+    expect(find.text('SplashTop Client - Test Mode'), findsOneWidget);
     
-    // This should not throw any exceptions
-    final app = MyApp(
-      authService: authService,
-      apiService: apiService,
-    );
-    
-    expect(app, isA<MyApp>());
-    expect(app.authService, equals(authService));
-    expect(app.apiService, equals(apiService));
+    // The app will show "No video stream" initially since WebSocket connection fails in test
+    expect(find.text('No video stream'), findsOneWidget);
   });
 }

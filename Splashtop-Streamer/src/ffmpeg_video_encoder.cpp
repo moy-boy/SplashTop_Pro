@@ -1,5 +1,6 @@
 #include "platform.h"
 #include "video_encoder.h"
+#include <cstring>
 
 namespace SplashTop {
 
